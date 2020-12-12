@@ -95,6 +95,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if issueInfo.LastPage == 0 {
+		// if we have only one page, LastPage is not set.
+		issueInfo.LastPage = 1
+	}
 	_, commitInfo, err := client.Repositories.ListCommits(
 		context.Background(),
 		*owner,
@@ -106,6 +110,10 @@ func main() {
 		})
 	if err != nil {
 		panic(err)
+	}
+	if commitInfo.LastPage == 0 {
+		// if we have only one page, LastPage is not set.
+		commitInfo.LastPage = 1
 	}
 
 	fmt.Printf("Fetching %d commit pages and %d issue pages...", commitInfo.LastPage, issueInfo.LastPage)
