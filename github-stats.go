@@ -185,7 +185,7 @@ func main() {
 
 	fmt.Println("")
 	fmt.Printf("Since the last release, the project has had %d commits by %d contributors, "+
-		"resulting in %d closed issues and %d closed PRs, all of this in just over %d days.",
+		"resulting in %d closed issues and %d closed pull requests, all of this in just over %d days.",
 		commitCount, len(contributors), closedIssues, closedPRs, days)
 	fmt.Println("")
 }
