@@ -47,7 +47,7 @@ func commitWorker(pages <-chan int, results chan<- github.RepositoryCommit) {
 			*owner,
 			*repo,
 			&github.CommitsListOptions{
-				SHA:         "master",
+				SHA:         "main",
 				Since:       *since,
 				ListOptions: github.ListOptions{Page: page, PerPage: 100},
 			})
@@ -104,7 +104,7 @@ func main() {
 		*owner,
 		*repo,
 		&github.CommitsListOptions{
-			SHA:         "master",
+			SHA:         "main",
 			Since:       *since,
 			ListOptions: github.ListOptions{Page: 1, PerPage: 100},
 		})
