@@ -14,6 +14,7 @@ var (
 	owner                     = kingpin.Arg("owner", "GitHub owner.").Required().String()
 	repo                      = kingpin.Arg("repo", "GitHub repository").Required().String()
 	base                      = kingpin.Arg("base", "Base tag/commit").Required().String()
+	head                      = kingpin.Arg("head", "Head tag/commit").Default("main").String()
 	auth_token                = kingpin.Flag("token", "OAuth Token").Envar("GITHUB_TOKEN").String()
 	since      *time.Time     = nil
 	client     *github.Client = nil
@@ -42,21 +43,19 @@ func issueWorker(pages <-chan int, results chan<- github.Issue) {
 
 func commitWorker(pages <-chan int, results chan<- github.RepositoryCommit) {
 	for page := range pages {
-		commits, _, err := client.Repositories.ListCommits(
-			context.Background(),
-			*owner,
-			*repo,
-			&github.CommitsListOptions{
-				SHA:         "main",
-				Since:       *since,
-				ListOptions: github.ListOptions{Page: page, PerPage: 100},
-			})
+		compareUrl := fmt.Sprintf("repos/%v/%v/compare/%v...%v?per_page=100&page=%v", *owner, *repo, *base, *head, page)
+		req, err := client.NewRequest("GET", compareUrl, nil)
+		if err != nil {
+			panic(err)
+		}
+		comp := new(github.CommitsComparison)
+		_, err = client.Do(context.Background(), req, comp)
 		if err != nil {
 			panic(err)
 		}
 		fmt.Print(".")
-		for _, commit := range commits {
-			results <- *commit
+		for _, commit := range comp.Commits {
+			results <- commit
 		}
 	}
 }
@@ -77,11 +76,20 @@ func main() {
 		client = github.NewClient(nil)
 	}
 
-	base, _, err := client.Repositories.GetCommit(context.Background(), *owner, *repo, *base)
+	baseCommit, _, err := client.Repositories.GetCommit(context.Background(), *owner, *repo, *base)
 	if err != nil {
 		panic(err)
 	}
-	since = base.Commit.Author.Date
+	since = baseCommit.Commit.Author.Date
+
+	until := time.Now()
+	if *head != "main" {
+		headCommit, _, err := client.Repositories.GetCommit(context.Background(), *owner, *repo, *head)
+		if err != nil {
+			panic(err)
+		}
+		until = *headCommit.Commit.Author.Date
+	}
 
 	_, issueInfo, err := client.Issues.ListByRepo(
 		context.Background(),
@@ -99,15 +107,13 @@ func main() {
 		// if we have only one page, LastPage is not set.
 		issueInfo.LastPage = 1
 	}
-	_, commitInfo, err := client.Repositories.ListCommits(
-		context.Background(),
-		*owner,
-		*repo,
-		&github.CommitsListOptions{
-			SHA:         "main",
-			Since:       *since,
-			ListOptions: github.ListOptions{Page: 1, PerPage: 100},
-		})
+
+	compareUrl := fmt.Sprintf("repos/%v/%v/compare/%v...%v?per_page=100", *owner, *repo, *base, *head)
+	req, err := client.NewRequest("GET", compareUrl, nil)
+	if err != nil {
+		panic(err)
+	}
+	commitInfo, err := client.Do(context.Background(), req, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -119,7 +125,7 @@ func main() {
 	fmt.Printf("Fetching %d commit pages and %d issue pages...", commitInfo.LastPage, issueInfo.LastPage)
 	// Enumerate commits
 	commitPages := make(chan int, 100)
-	commits := make(chan github.RepositoryCommit, 10000)
+	commits := make(chan github.RepositoryCommit, 100000)
 	commitWg := &sync.WaitGroup{}
 	commitWg.Add(5)
 	for w := 1; w <= 5; w++ {
@@ -139,7 +145,7 @@ func main() {
 
 	// Enumerate issues
 	issuePages := make(chan int, 100)
-	issues := make(chan github.Issue, 10000)
+	issues := make(chan github.Issue, 100000)
 	issueWg := &sync.WaitGroup{}
 	issueWg.Add(5)
 	for w := 1; w <= 5; w++ {
@@ -160,7 +166,7 @@ func main() {
 	closedIssues := 0
 	closedPRs := 0
 	for issue := range issues {
-		if issue.ClosedAt.After(*since) {
+		if issue.ClosedAt.After(*since) && issue.ClosedAt.Before(until) {
 			if issue.PullRequestLinks != nil {
 				closedPRs++
 			} else {
@@ -175,7 +181,7 @@ func main() {
 		contributors[*commit.Commit.Author.Name] = true
 		commitCount += 1
 	}
-	days := int(time.Since(*since).Hours() / 24)
+	days := int(until.Sub(*since).Hours() / 24)
 
 	fmt.Println("")
 	fmt.Printf("Since the last release, the project has had %d commits by %d contributors, "+
